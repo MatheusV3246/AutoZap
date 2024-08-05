@@ -1,0 +1,2 @@
+pip install -U pyinstaller
+pyinstaller --additional-hooks-dir=. --onefile --windowed gui.py
