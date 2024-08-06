@@ -1,8 +1,40 @@
 import threading
+from PyQt5.QtCore import pyqtSignal, QObject
 from main import Engine
-from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QTextEdit, QVBoxLayout, QHBoxLayout, QFileDialog, QComboBox, QScrollArea, QFrame
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QTextEdit, QVBoxLayout, QHBoxLayout, QFileDialog, QComboBox, QScrollArea
 from PyQt5.QtGui import QIcon, QPixmap, QMovie
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt
+
+class Worker(QObject):
+    # Sinal para atualizar a interface do usuário
+    update_info = pyqtSignal(str)
+    finished = pyqtSignal()  # Novo sinal
+
+    def __init__(self, engine):
+        super().__init__()
+        self.engine = engine
+
+    def login(self):
+        """Realiza o login no WhatsApp."""
+        response_login = self.engine.login()
+        messages = {
+            200: "Login efetuado com sucesso!",
+            404: "Erro ao logar! Verifique sua conexão ou o WhatsApp Web.",
+        }
+        self.update_info.emit(messages.get(response_login, "Login ainda está pendente. Tente novamente."))
+
+    def send_message(self, contato, tratamento, mensagem, endosso, saudacao_swicth):
+        """Envia a mensagem para os contatos."""
+        self.update_info.emit("Enviando as mensagens, por favor aguarde...")
+        if not (contato and tratamento and mensagem):
+            self.update_info.emit("Por favor, carregue todos os dados necessários antes de enviar.")
+            self.finished.emit()  # Emite sinal de finalização
+            return
+        
+        self.engine.enviar(contato, tratamento, mensagem, endosso, saudacao_swicth)
+        self.update_info.emit(self.engine.tempo_exe)
+        self.finished.emit()  # Emite sinal de finalização
+
 
 class Application(QWidget):
     def __init__(self):
@@ -11,6 +43,8 @@ class Application(QWidget):
         self.cam_ico = "images/ico.png"
         self.cam_logo = "images/logo.png"
         self.cam_loading = "images/loading.gif"
+        self.fontsize = "10pt"
+        self.font_family = "Calibri"
         self.contato = []
         self.tratamento = []
         self.mensagem = ""
@@ -21,6 +55,13 @@ class Application(QWidget):
         self.stop_animation = False
 
         self._setup_ui()
+        
+        # Criar o worker
+        self.worker = Worker(self.engine)
+        # Conectar o sinal para atualizar a interface
+        self.worker.update_info.connect(self._display_info)
+        # Conectar o sinal de finalização
+        self.worker.finished.connect(self._stop_loading_animation)  # Conecte aqui
 
     def _display_info(self, texto):
         """Exibe uma mensagem de informação na interface."""
@@ -28,16 +69,7 @@ class Application(QWidget):
         self.label_info2.setText(texto)
 
     def _start_login(self):
-        threading.Thread(target=self._login).start()
-
-    def _login(self):
-        """Realiza o login no WhatsApp."""
-        response_login = self.engine.login()
-        messages = {
-            200: "Login efetuado com sucesso!",
-            404: "Erro ao logar! Verifique sua conexão ou o WhatsApp Web.",
-        }
-        self._display_info(messages.get(response_login, "Login ainda está pendente. Tente novamente."))
+        threading.Thread(target=self.worker.login).start()
 
     def _select_file(self):
         """Permite ao usuário selecionar um arquivo CSV."""
@@ -68,26 +100,20 @@ class Application(QWidget):
 
     def _start_sending(self):
         self._start_loading_animation()
-        threading.Thread(target=self._send_message).start()
-
-    def _send_message(self):
-        """Envia a mensagem para os contatos."""
-        self._display_info("Enviando as mensagens, por favor aguarde...")
-        if not (self.contato and self.tratamento and self.mensagem):
-            self._display_info("Por favor, carregue todos os dados necessários antes de enviar.")
-            self._stop_loading_animation()
-            return
-        
-        self.engine.enviar(self.contato, self.tratamento, self.mensagem, self.endosso, self.saudacao_swicth)
-        self._display_info(self.engine.tempo_exe)
-        self._stop_loading_animation()
+        threading.Thread(target=self.worker.send_message, args=(self.contato, self.tratamento, self.mensagem, self.endosso, self.saudacao_swicth)).start()
 
     def _start_loading_animation(self):
         if self.loading_label is None:
             self.loading_label = QLabel(self)
             self.loading_label.setAlignment(Qt.AlignCenter)
             self.loading_label.setFixedSize(100, 100)
-            self.frame_layout.addWidget(self.loading_label)
+
+            # Adicionar o layout horizontal para centralizar a animação
+            self.loading_layout = QHBoxLayout()
+            self.loading_layout.addStretch()
+            self.loading_layout.addWidget(self.loading_label)
+            self.loading_layout.addStretch()
+            self.frame_layout.addLayout(self.loading_layout)
 
         self.stop_animation = False
         self.loading_animation = QMovie(self.cam_loading)
@@ -98,15 +124,47 @@ class Application(QWidget):
         self.stop_animation = True
         if self.loading_label:
             self.loading_animation.stop()
-            self.frame_layout.removeWidget(self.loading_label)
+            self.frame_layout.removeItem(self.loading_layout)
             self.loading_label.deleteLater()
             self.loading_label = None
+            
+    def _style_global(self):
+        style = f"""
+            QLabel {{
+                font-size: {self.fontsize};
+                font-family: {self.font_family};
+                font-weight: bold; 
+            }}
+            QPushButton {{
+                font-size: {self.fontsize};
+                background-color: #075e54;
+                color: #ffffff;
+                border-radius: 10px;
+                font-family: {self.font_family};
+                font-weight: bold; 
+            }}
+            QComboBox {{
+                font-size: {self.fontsize};
+                font-family: {self.font_family};
+            }}
+            QTextEdit {{
+                font-size: {self.fontsize};
+                font-family: {self.font_family};
+            }}
+            QScrollArea {{
+                border: none;
+            }}
+        """
+        return style
 
     def _setup_ui(self):
         """Configura a interface do usuário."""
         self.setWindowTitle("AutoZap")
-        self.setGeometry(100, 100, 350, 650)
+        self.setGeometry(100, 100, 550, 700)
         self.setWindowIcon(QIcon(self.cam_ico))
+
+        # Definir o estilo global com aumento de fonte
+        self.setStyleSheet(self._style_global())
 
         main_layout = QVBoxLayout(self)
 
@@ -146,12 +204,10 @@ class Application(QWidget):
         self._load_logo_image()
 
         login_button = QPushButton("Logar no WhatsApp", self)
-        login_button.setStyleSheet("background-color: #075e54; color: #ffffff;")
         login_button.clicked.connect(self._start_login)
         self.frame_layout.addWidget(login_button)
 
         upload_button = QPushButton("Upload da Base de Contato", self)
-        upload_button.setStyleSheet("background-color: #075e54; color: #ffffff;")
         upload_button.clicked.connect(self._select_file)
         self.frame_layout.addWidget(upload_button)
 
@@ -175,12 +231,10 @@ class Application(QWidget):
         self.frame_layout.addWidget(self.endosso_textbox)
 
         carregar_button = QPushButton("Carregar Mensagem", self)
-        carregar_button.setStyleSheet("background-color: #075e54; color: #ffffff;")
         carregar_button.clicked.connect(self._load_message)
         self.frame_layout.addWidget(carregar_button)
 
         enviar_button = QPushButton("Enviar Mensagem", self)
-        enviar_button.setStyleSheet("background-color: #075e54; color: #ffffff;")
         enviar_button.clicked.connect(self._start_sending)
         self.frame_layout.addWidget(enviar_button)
 
