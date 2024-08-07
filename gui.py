@@ -1,21 +1,19 @@
 import threading
 from PyQt5.QtCore import pyqtSignal, QObject
 from main import Engine
-from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QTextEdit, QVBoxLayout, QHBoxLayout, QFileDialog, QComboBox, QScrollArea
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QTextEdit, QVBoxLayout, QHBoxLayout, QFileDialog, QComboBox, QScrollArea, QMessageBox
 from PyQt5.QtGui import QIcon, QPixmap, QMovie
 from PyQt5.QtCore import Qt
 
 class Worker(QObject):
-    # Sinal para atualizar a interface do usuário
     update_info = pyqtSignal(str)
-    finished = pyqtSignal()  # Novo sinal
+    finished = pyqtSignal() 
 
     def __init__(self, engine):
         super().__init__()
         self.engine = engine
 
     def login(self):
-        """Realiza o login no WhatsApp."""
         response_login = self.engine.login()
         messages = {
             200: "Login efetuado com sucesso!",
@@ -24,17 +22,15 @@ class Worker(QObject):
         self.update_info.emit(messages.get(response_login, "Login ainda está pendente. Tente novamente."))
 
     def send_message(self, contato, tratamento, mensagem, endosso, saudacao_swicth):
-        """Envia a mensagem para os contatos."""
-        self.update_info.emit("Enviando as mensagens, por favor aguarde...")
+        self.update_info.emit(f"Enviando {self.engine.n_contatos} mensagens personalizadas, por favor aguarde...")
         if not (contato and tratamento and mensagem):
             self.update_info.emit("Por favor, carregue todos os dados necessários antes de enviar.")
-            self.finished.emit()  # Emite sinal de finalização
+            self.finished.emit()
             return
         
-        self.engine.enviar(contato, tratamento, mensagem, endosso, saudacao_swicth)
+        self.engine.enviar_final(contato, tratamento, mensagem, endosso, saudacao_swicth)
         self.update_info.emit(self.engine.tempo_exe)
-        self.finished.emit()  # Emite sinal de finalização
-
+        self.finished.emit()
 
 class Application(QWidget):
     def __init__(self):
@@ -56,23 +52,18 @@ class Application(QWidget):
 
         self._setup_ui()
         
-        # Criar o worker
         self.worker = Worker(self.engine)
-        # Conectar o sinal para atualizar a interface
         self.worker.update_info.connect(self._display_info)
-        # Conectar o sinal de finalização
-        self.worker.finished.connect(self._stop_loading_animation)  # Conecte aqui
+        self.worker.finished.connect(self._stop_loading_animation) 
 
     def _display_info(self, texto):
-        """Exibe uma mensagem de informação na interface."""
-        self.info_label.setText(texto)
-        self.label_info2.setText(texto)
+        self.label_info.setText(texto)
+        QMessageBox.information(self, "Informação", texto)
 
     def _start_login(self):
         threading.Thread(target=self.worker.login).start()
 
     def _select_file(self):
-        """Permite ao usuário selecionar um arquivo CSV."""
         caminho_arquivo, _ = QFileDialog.getOpenFileName(
             self, "Selecione um arquivo do computador!", "", "Excel files (*.xlsx);;CSV files (*.csv)"
         )
@@ -80,12 +71,11 @@ class Application(QWidget):
         if caminho_arquivo:
             try:
                 self.contato, self.tratamento = self.engine.processa_base(caminho_arquivo)
-                self._display_info("Arquivo carregado com sucesso!")
+                self._display_info(f"Base de contatos com {self.engine.n_contatos} contatos!")
             except Exception as e:
                 self._display_info(f"Erro ao carregar o arquivo: {e}")
 
     def _load_message(self):
-        """Carrega a mensagem, saudação e endosso da interface."""
         saudacao = self.combobox.currentText()
         mensagem = self.mensagem_textbox.toPlainText().strip()
         endosso = self.endosso_textbox.toPlainText().strip()
@@ -108,7 +98,6 @@ class Application(QWidget):
             self.loading_label.setAlignment(Qt.AlignCenter)
             self.loading_label.setFixedSize(100, 100)
 
-            # Adicionar o layout horizontal para centralizar a animação
             self.loading_layout = QHBoxLayout()
             self.loading_layout.addStretch()
             self.loading_layout.addWidget(self.loading_label)
@@ -158,12 +147,10 @@ class Application(QWidget):
         return style
 
     def _setup_ui(self):
-        """Configura a interface do usuário."""
         self.setWindowTitle("AutoZap")
         self.setGeometry(100, 100, 550, 700)
         self.setWindowIcon(QIcon(self.cam_ico))
 
-        # Definir o estilo global com aumento de fonte
         self.setStyleSheet(self._style_global())
 
         main_layout = QVBoxLayout(self)
@@ -180,7 +167,6 @@ class Application(QWidget):
         self._create_widgets()
 
     def _load_logo_image(self):
-        """Carrega a imagem do logo."""
         try:
             pixmap = QPixmap(self.cam_logo)
             label_imagem = QLabel(self)
@@ -191,15 +177,10 @@ class Application(QWidget):
             print(f"Erro ao carregar a imagem: {e}")
 
     def _create_widgets(self):
-        """Cria os widgets da interface."""
-        self.info_label = QLabel("Faça seu login no Whatsapp!", self)
-        self.info_label.setStyleSheet("color: #25D366;")
-        self.info_label.setAlignment(Qt.AlignCenter)
-        self.frame_layout.addWidget(self.info_label)
 
-        self.label_info2 = QLabel("Envie mensagem automática para contatos do seu WhatsApp!", self)
-        self.label_info2.setStyleSheet("color: #25D366;")
-        self.label_info2.setAlignment(Qt.AlignCenter)
+        self.label_info = QLabel("Envie mensagem automática para contatos do seu WhatsApp!", self)
+        self.label_info.setStyleSheet("color: #25D366;")
+        self.label_info.setAlignment(Qt.AlignCenter)
 
         self._load_logo_image()
 
@@ -238,7 +219,7 @@ class Application(QWidget):
         enviar_button.clicked.connect(self._start_sending)
         self.frame_layout.addWidget(enviar_button)
 
-        self.frame_layout.addWidget(self.label_info2)
+        self.frame_layout.addWidget(self.label_info)
 
 if __name__ == "__main__":
     import sys

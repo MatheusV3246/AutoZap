@@ -17,6 +17,7 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException,
 class Engine:
     def __init__(self, profile_dir=None):
         self.tempo_exe = ""
+        self.n_contatos = ""
         try:
             self.navegador = webdriver.Chrome()
             self.navegador.minimize_window()
@@ -53,12 +54,14 @@ class Engine:
             
             numeros = contatos["Número"].astype(str).tolist()
             nomes = contatos["Nome"].astype(str).tolist()
+            #Recebe números de contatos
+            self.n_contatos = len(numeros)
             return numeros, nomes
         except Exception as e:
             print(f"Erro ao processar base de contatos: {e}")
             return [], []
 
-    def enviar(self, numeros, nomes, mensagem_orig, endosso, saudacao_swicth):
+    def enviar_final(self, numeros, nomes, mensagem_orig, endosso, saudacao_swicth):
         """Envia mensagens para a lista de contatos."""
         inicio = time.time() 
         link = "link"
@@ -67,10 +70,12 @@ class Engine:
             saudacao = self._get_saudacao(saudacao_swicth, nomes[i])
             mensagem = self._criar_mensagem(saudacao, mensagem_orig, link, endosso)
             
-            situacao = self._enviar_mensagem(numero, mensagem)
+            situacao = self._tentar_enviar_mensagem(numero, mensagem)
             self.log_envio(situacao, i, nomes[i], numero)
-            
-            if (i + 1) % 20 == 0:
+
+            if (i + 1) % 15 == 0 :
+                if (i + 1) >= 150:
+                    break
                 sleep(6)
 
         self._calcular_tempo_execucao(inicio, i + 1)
@@ -101,15 +106,14 @@ _Em serviço de:_
 *{endosso}*                 
 '''
 
-    def _enviar_mensagem(self, numero, mensagem):
-        """Envia a mensagem para o número fornecido."""
+    def _steps_enviar_mensagem(self, numero, mensagem):
         try:
-            search_button = WebDriverWait(self.navegador, 30).until(
+            search_button = WebDriverWait(self.navegador, 60).until(
                 EC.element_to_be_clickable((By.XPATH, '/html/body/div[1]/div/div/div[2]/div[3]/header/header/div/span/div/span/div[1]/div/span'))
             )
             search_button.click()
 
-            search_field = WebDriverWait(self.navegador, 30).until(
+            search_field = WebDriverWait(self.navegador, 60).until(
                 EC.element_to_be_clickable((By.XPATH, '//*[@id="app"]/div/div[2]/div[2]/div[1]/span/div/span/div/div[1]/div[2]/div[2]/div/div[1]/p'))
             )
             search_field.send_keys(numero)
@@ -118,7 +122,7 @@ _Em serviço de:_
 
             pyperclip.copy(mensagem)
 
-            campo_mensagem = WebDriverWait(self.navegador, 30).until(
+            campo_mensagem = WebDriverWait(self.navegador, 60).until(
                 EC.element_to_be_clickable((By.XPATH, '//*[@id="main"]/footer/div[1]/div/span[2]/div/div[2]/div[1]/div/div[1]/p'))
             )
             campo_mensagem.send_keys(Keys.CONTROL + "v")
@@ -127,22 +131,34 @@ _Em serviço de:_
 
             return "Sucesso"
         
-        except NoSuchElementException:
-            print(f"Não conseguimos contato para o número: {numero}")
-            return "Falha"
-        except TimeoutException:
-            print(f"Tempo de espera esgotado para o número: {numero}")
-            sleep(10)
-            return "Falha"
-        except ElementClickInterceptedException:
-            print(f"Não conseguimos enviar a mensagem para o número: {numero}")
-            sleep(10)
-            return "Falha"
+        except (NoSuchElementException, TimeoutException, ElementClickInterceptedException) as e:
+            return e.__class__.__name__
+        
+        except Exception as e:
+            return str(e)
+
+    def _tentar_enviar_mensagem(self, numero, mensagem):
+        """Tenta enviar a mensagem com várias tentativas em caso de falha."""
+        max_tentativas = 3
+        tentativas = 0
+        while tentativas < max_tentativas:
+            status_envio = self._steps_enviar_mensagem(numero, mensagem)
+            if status_envio == "Sucesso":
+                return "Sucesso"
+            
+            tentativas += 1
+            print(f"Tentativa {tentativas} falhou com o erro: {status_envio}. Tentando novamente...")
+            sleep(5)  # Tempo de espera antes de tentar novamente
+        
+        return f"Falha após {max_tentativas} tentativas: {status_envio}"
 
     def log_envio(self, situacao, iteracao, nome, numero):
         """Registra o log do envio."""
         with open('log/log_envio.txt', 'a') as log_file:
-            log_message = f"{situacao} ao enviar a {iteracao} mensagem para {nome} de numero: {numero}\n"
+            if situacao == None:
+                situacao = "Falha"
+
+            log_message = f"{situacao} ao enviar a {int(iteracao)+1} mensagem para {nome} de numero: {numero}"
             log_file.write(log_message)
             print(log_message)
 
